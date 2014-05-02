@@ -413,6 +413,22 @@ void loop()
     Serial.print("token: ");
     Serial.println(uuid);
 
+    char id[12];
+    memcpy(id, (char *)ID1, 12);
+    Serial.print("Your core id is ");
+    char hex_digit;
+    for (int i = 0; i < 12; ++i)
+    {
+      hex_digit = 48 + (id[i] >> 4);
+      if (57 < hex_digit)
+        hex_digit += 39;
+        Serial.write(hex_digit);
+        hex_digit = 48 + (id[i] & 0xf);
+      if (57 < hex_digit)
+        hex_digit += 39;
+        Serial.write(hex_digit);
+    }
+    Serial.print("\r\n");
   }
 
   byte pin, analogPin;
