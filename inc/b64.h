@@ -1,13 +1,16 @@
 #ifndef _B64_H
 #define _B64_H
 
+#ifdef SPARK
 #include "application.h"
 #include "pgmspace.h"
-//#include "Arduino.h"
-//#include <avr/pgmspace.h>
-//#include "Client.h"
-#include "ringbuffer.h"
+#else
+#include "Arduino.h"
+#include "avr/pgmspace.h"
+#include "Client.h"
+#endif
 
+#include "ringbuffer.h"
 
 //#define B64_DEBUG
 #ifdef B64_DEBUG

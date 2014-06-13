@@ -1,14 +1,15 @@
 #ifndef _SKYNETCLIENT_H
 #define _SKYNETCLIENT_H
 
-// #include "Arduino.h"
-// #include "SPI.h"
-// #include <EEPROM.h>
-//#include <JsonParser.h>
+#ifdef SPARK
+#include "application.h"
+#else
+#include "Arduino.h"
+#include "Client.h"
+#include <EEPROM.h>
+#endif
 
 #include "jsmn.h"
-#include "application.h"
-
 #include "ringbuffer.h"
 #include "b64.h"
 
@@ -30,26 +31,62 @@
 	#define DBGCS( ... )
 #endif
 
-#define SID_MAXLEN 24
-#define UUIDSIZE 37
-#define TOKENSIZE 33
-#define MAXACK 5
+const uint8_t SID_MAXLEN = 24;
+const uint8_t UUIDSIZE = 37;
+const uint8_t TOKENSIZE = 33;
+const uint8_t MAXACK = 5;
 
-#define HEARTBEATTIMEOUT 60000
-#define SOCKETTIMEOUT 10000UL
+const uint16_t HEARTBEATTIMEOUT = 60000;
+const uint16_t SOCKETTIMEOUT = 10000;
 
-#define EEPROMBLOCKADDRESS 0
-#define EEPROMBLOCK 'S'
-#define TOKENADDRESS EEPROMBLOCKADDRESS+1
-#define UUIDADDRESS TOKENADDRESS+TOKENSIZE
+const uint8_t EEPROMBLOCK = 'S';
+const uint16_t EEPROMBLOCKADDRESS = 0;
+const uint16_t TOKENADDRESS = EEPROMBLOCKADDRESS+1;
+const uint16_t UUIDADDRESS = TOKENADDRESS+TOKENSIZE;
 
-#define MAX_PARSE_OBJECTS 16 //16 needed for Ready from Skynet
-#define MAX_FLASH_STRING 50 //for PROGMEM strings
+const uint8_t MAX_PARSE_OBJECTS = 16; //16 needed for Ready from Skynet
+const uint8_t MAX_FLASH_STRING = 50; //for longst PROGMEM string, FGET3
 
 // Length of static data buffers
-#define SOCKET_RX_BUFFER_SIZE 186 //186 needed for biggest skynet message, READY
-#define SKYNET_TX_BUFFER_SIZE 150 //~150 is needed for firmata's capability query on an uno
-#define SKYNET_RX_BUFFER_SIZE 32
+const uint8_t SOCKET_RX_BUFFER_SIZE = 186; //186 needed for biggest skynet message, READY
+const uint8_t SKYNET_TX_BUFFER_SIZE = 150; //~150 is needed for firmata's capability query on an uno
+const uint8_t SKYNET_RX_BUFFER_SIZE = 64; //~? needed for firmata to fill with response
+
+const prog_uchar FLOG1[] PROGMEM = {"{\"name\":\"data\",\"args\":[{"};
+const prog_uchar FLOG2[] PROGMEM = {", \"uuid\":\""};
+
+const prog_uchar FUUID[] PROGMEM = {"\"uuid\":\""};
+
+
+const prog_uchar FIDENTIFY1[] PROGMEM = {"{\"name\":\"identity\",\"args\":[{"};
+const prog_uchar FIDENTIFY2[] PROGMEM = {"\", \"uuid\":\""};
+const prog_uchar FIDENTIFY3[] PROGMEM = {"\", \"token\":\""};
+
+const prog_uchar FCLOSE1[] PROGMEM = {"\"}]}"};
+const prog_uchar FCLOSE2[] PROGMEM = {"}]}"};
+
+const prog_uchar FBIND1[] PROGMEM = {"+[{\"result\":\"ok\"}]"};
+
+const prog_uchar FMESSAGE1[] PROGMEM = {"{\"name\":\"message\",\"args\":[{\"devices\":\""};
+const prog_uchar FMESSAGE2[] PROGMEM = {"\",\"payload\":\""};
+
+const prog_uchar FGET1[] PROGMEM = {"GET /socket.io/1/websocket/"};
+const prog_uchar FGET2[] PROGMEM = {" HTTP/1.1\r\nHost: "};
+const prog_uchar FGET3[] PROGMEM = {"\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n\r\n"};
+
+const prog_uchar FPOST1[] PROGMEM = {"POST /socket.io/1/ HTTP/1.1\r\nHost: "};
+const prog_uchar FPOST2[] PROGMEM = {"\r\n\r\n"};
+
+const char IDENTIFY[] = "identify";
+const char READY[] = "ready";
+const char NOTREADY[] = "notReady";
+const char BIND[] = "bindSocket";
+const char MESSAGE[] = "message";
+
+const char EMIT[] = "5:::";
+const char MSG[] = "3:::";
+const char HEARTBEAT[] = "2::";
+const char BND[] = "6:::";
 
 class SkynetClient : public Stream {
 	public:
@@ -89,19 +126,23 @@ class SkynetClient : public Stream {
 		unsigned long lastBeat;
         MessageDelegate messageDelegate;
 
-		void printByByteF(PGM_P data);
-		void printByByte(const char *data);
-		void printByByte(const char *data, size_t size);
-		void printToken(const char *js, jsmntok_t t);
+		void xmit(const __FlashStringHelper* data);
+		void xmit(const char *data);
+		void xmit(char data);
+		void xmit(const char *js, jsmntok_t t);
+		void xmit(IPAddress data);
+		void xmit(const prog_uchar *data);
 
 		uint8_t waitSocketData();
 		uint8_t readLine(char *buf, uint8_t max);
 
 		void eeprom_write_bytes(int, char*, int);
+		void eeprom_write_byte(int, const char);
 		void eeprom_read_bytes(int, char*, int);
 
 		void processSkynet(char *data, char *ack);
 		void processIdentify(char *data, jsmntok_t *tok);
+		void sendIdentify(bool credentials);
 		void processReady(char *data, jsmntok_t *tok);
 		void processNotReady(char *data, jsmntok_t *tok);
 		void processMessage(char *data, jsmntok_t *tok);
