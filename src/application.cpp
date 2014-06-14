@@ -549,7 +549,7 @@ void setup()
   Spark.function("analogread", tinkerAnalogRead);
   Spark.function("analogwrite", tinkerAnalogWrite);
 
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   Firmata.setFirmwareVersion(FIRMATA_MAJOR_VERSION, FIRMATA_MINOR_VERSION);
 

@@ -5,13 +5,15 @@
 
 #include <inttypes.h>
 
+#ifdef SPARK
 #include "application.h"
-
-//#if defined(ARDUINO) && ARDUINO >= 100
-//#include "Arduino.h"	// for digitalRead, digitalWrite, etc
-//#else
-//#include "WProgram.h"
-//#endif
+#else
+#if defined(ARDUINO) && ARDUINO >= 100
+#include "Arduino.h"	// for digitalRead, digitalWrite, etc
+#else
+#include "WProgram.h"
+#endif
+#endif
 
 // Normally Servo.h must be included before Firmata.h (which then includes
 // this file).  If Servo.h wasn't included, this allows the code to still
@@ -335,7 +337,7 @@ writePort(port, value, bitmask):  Write an 8 bit port.
 
 
 // Spark
-#elif defined(SPARK_CORE)
+#elif defined(SPARK)
 #define TOTAL_ANALOG_PINS       8
 #define TOTAL_PINS              20 //minus 2 (or maybe 4) disabled
 #define VERSION_BLINK_PIN       7
