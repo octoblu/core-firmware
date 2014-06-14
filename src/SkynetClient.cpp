@@ -1,5 +1,5 @@
 
-#include <Skynetclient.h>
+#include <SkynetClient.h>
 
 #define TOKEN_STRING(js, t, s) \
 	(strncmp(js+(t).start, s, (t).end - (t).start) == 0 \
@@ -366,30 +366,45 @@ int SkynetClient::monitor()
 //lookup uuid and token if we have them and send in for validation
 void SkynetClient::processIdentify(char *data, jsmntok_t *tok)
 {
-	char temp[UUIDSIZE];
+	sendIdentify(EEPROM.read( (uint8_t)EEPROMBLOCKADDRESS) == EEPROMBLOCK);
+}
 
-    DBGCS("Sending: ");
+//Credentials have been invalidted, send blank identify for new ones
+void SkynetClient::processNotReady(char *data, jsmntok_t *tok)
+{
+	sendIdentify(false);
+}
+
+//Credentials have been invalidted, send blank identify for new ones
+void SkynetClient::sendIdentify(bool credentials)
+{
+    DBGCS("Sending(Identify): ");
 
 	xmit((char)0);
 	xmit(EMIT);
 	xmit(FIDENTIFY1);
-	xmitToken(data, tok[7]);
-	
-	if( EEPROM.read( (uint8_t)EEPROMBLOCKADDRESS) == EEPROMBLOCK )
+
+	if(credentials)
 	{
+		char temp[UUIDSIZE];
+
 		getUuid(temp);
 
-		xmit(FIDENTIFY2);
+		xmit(FUUID);
 		xmit(temp);
 
 		getToken(temp);
 
 		xmit(FIDENTIFY3);
 		xmit(temp);
+		xmit(FCLOSE1);
 	}
+	else
+		xmit(FCLOSE2);
 
-	xmit(FCLOSE);
+
 	xmit((char)255);
+	DBGCN();
 }
 
 //Got credentials back, store if necessary
@@ -397,70 +412,26 @@ void SkynetClient::processReady(char *data, jsmntok_t *tok)
 {
 	DBGCSN("Skynet Connect");
 
-	char temp[UUIDSIZE];
-
 	status = 1;
-	
-	getUuid(temp);
 
-    //if uuid has been refreshed, save it
-    if (!TOKEN_STRING(data, tok[13], temp ))
-    {
-      	DBGCSN("uuid refresh");
-		strncpy(temp, data + tok[13].start, tok[13].end - tok[13].start);
-		
-      	DBGCS("new: ");
-      	DBGCN(temp);
-		
-      	setUuid(temp);
-    }else
-    {
-    	DBGCSN("no uuid refresh necessary");
-    }
-
-    getToken(temp);
-	
-    //if token has been refreshed, save it
-    if (!TOKEN_STRING(data, tok[15], temp ))
-    {
-		DBGCSN("token refresh");
-	  	strncpy(temp, data + tok[15].start, tok[15].end - tok[15].start);
-
-        DBGCS("new: ");
-      	DBGCN(temp);
-      
-		setToken(temp);
-    }else
-    {
-		DBGCSN("no token refresh necessary");
-    }
-
-}
-
-//Credentials have been invalidted, send blank identify for new ones
-void SkynetClient::processNotReady(char *data, jsmntok_t *tok)
-{
-    DBGCS("Sending: ");
-
-	xmit((char)0);
-	xmit(EMIT);
-	xmit(FIDENTIFY1);
-	xmitToken(data, tok[11]);
-	xmit(FCLOSE);
-	xmit((char)255);
+	char *temp = data + tok[13].start;
+    setUuid(temp);
+    temp = data + tok[15].start;
+	setToken(temp);
 }
 
 void SkynetClient::processBind(char *data, jsmntok_t *tok, char *ack)
 {
 	bind = 1;
 
-    DBGCS("Sending Bind: ");
+    DBGCS("Sending(Bind): ");
 
 	xmit((char)0);
 	xmit(BND);
 	xmit(ack);
 	xmit(FBIND1);
 	xmit((char)255);
+	DBGCN();
 }
 
 void SkynetClient::processMessage(char *data, jsmntok_t *tok)
@@ -492,33 +463,44 @@ void SkynetClient::processSkynet(char *data, char *ack)
 
     if (TOKEN_STRING(data, tok[2], IDENTIFY )) 
     {
-		DBGCSN(IDENTIFY);
+		DBGCN(IDENTIFY);
 		processIdentify(data, tok);
     } 
     else if (TOKEN_STRING(data, tok[2], READY )) 
     {
-		DBGCSN(READY);
+		DBGCN(READY);
 		processReady(data, tok);
     }
     else if (TOKEN_STRING(data, tok[2], NOTREADY )) 
     {
-		DBGCSN(NOTREADY);
+		DBGCN(NOTREADY);
 		processNotReady(data, tok);
     }
     else if (TOKEN_STRING(data, tok[2], BIND )) 
     {
-		DBGCSN(BIND);
+		DBGCN(BIND);
 		processBind(data, tok, ack);
     }
     else if (TOKEN_STRING(data, tok[2], MESSAGE )) 
     {
-		DBGCSN(MESSAGE);
+		DBGCN(MESSAGE);
 		processMessage(data, tok);
     }
     else
     {
 		DBGCS("Unknown:");
     }
+}
+
+void SkynetClient::xmit(const prog_uchar *data) 
+{
+	PGM_P p = reinterpret_cast<PGM_P>(data);
+
+	char buffer[MAX_FLASH_STRING];
+	strcpy_P(buffer, p);
+
+	DBGC(buffer);
+	client->print(buffer);
 }
 
 void SkynetClient::xmit(const __FlashStringHelper* data) 
@@ -550,7 +532,7 @@ void SkynetClient::xmit(char data)
 	client->print(data);
 }
 
-void SkynetClient::xmitToken(const char *js, jsmntok_t t) 
+void SkynetClient::xmit(const char *js, jsmntok_t t) 
 {
 	int i = 0;
 	for(i = t.start; i < t.end; i++) {
@@ -560,7 +542,7 @@ void SkynetClient::xmitToken(const char *js, jsmntok_t t)
 }
 
 size_t SkynetClient::write(const uint8_t *buf, size_t size) {
-    DBGCS("Sending2: ");
+    DBGCS("Sending(Write): ");
 
 	xmit((char)0);
 
@@ -570,6 +552,7 @@ size_t SkynetClient::write(const uint8_t *buf, size_t size) {
 
 	xmit((char)255);
 
+	DBGCN();
 	return size;
 }
 
@@ -596,7 +579,7 @@ size_t SkynetClient::write(uint8_t c)
 void SkynetClient::flush()
 {
 	if(txbuf.available()){
-		DBGCS("Sending: ");
+		DBGCS("Sending(Flush): ");
 	
 		xmit((char)0);
 	
@@ -606,6 +589,8 @@ void SkynetClient::flush()
 		b64::send(txbuf, *client);
 		
 		xmit((char)255);
+
+		DBGCN();
 	}
 }
 
@@ -648,10 +633,20 @@ void SkynetClient::setMessageDelegate(MessageDelegate newMessageDelegate) {
 	  messageDelegate = newMessageDelegate;
 }
 
+//Arduino Eeprom.write doesnt utilize update, so read to see if we need to refresh first
 void SkynetClient::eeprom_write_bytes(int address, char *buf, int bufSize){
   for(int i = 0; i<bufSize; i++){
-    EEPROM.write(address+i, buf[i]);
+  	if(EEPROM.read(address+i)!=buf[i]){
+  		EEPROM.write(address+i, buf[i]);
+  	}
   }
+}
+
+//Arduino Eeprom.write doesnt utilize update, so read to see if we need to refresh first
+void SkynetClient::eeprom_write_byte(int address, char c){
+  	if(EEPROM.read(address)!=c){
+  		EEPROM.write(address, c);
+  	}
 }
 
 void SkynetClient::eeprom_read_bytes(int address, char *buf, int bufSize){
@@ -690,7 +685,7 @@ void SkynetClient::setUuid(char *uuid)
 
 void SkynetClient::sendMessage(const char *device, char const *object)
 {
-	DBGCS("Sending: ");
+	DBGCS("Sending(Message): ");
 
 	xmit((char)0);
 	xmit(EMIT);
@@ -698,22 +693,22 @@ void SkynetClient::sendMessage(const char *device, char const *object)
 	xmit(device);
 	xmit(FMESSAGE2);
 	xmit(object);
-	xmit(FCLOSE);
+	xmit(FCLOSE1);
 	xmit((char)255);
+	DBGCN();
 }
 
 void SkynetClient::logMessage(char const *object)
 {
 	char temp[UUIDSIZE];
 
-	DBGCS("Logging: ");
+	DBGCS("Sending(Log): ");
 
 	xmit((char)0);
 	xmit(EMIT);
 	xmit(FLOG1);
 	xmit(object);
 	xmit(FLOG2);
-
 	getUuid(temp);
 
 	xmit(temp);
@@ -722,6 +717,7 @@ void SkynetClient::logMessage(char const *object)
 	getToken(temp);
 	
 	xmit(temp);
-	xmit(FCLOSE);
+	xmit(FCLOSE1);
 	xmit((char)255);
+	DBGCN();
 }
