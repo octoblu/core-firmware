@@ -340,7 +340,7 @@ writePort(port, value, bitmask):  Write an 8 bit port.
 #elif defined(SPARK)
 #define TOTAL_ANALOG_PINS       8
 #define VERSION_BLINK_PIN       7
-#define IS_PIN_DIGITAL(p)       (((p) >= 0 && (p) <= 7) || ((p) >= 10 && (p) <= 19))
+#define IS_PIN_DIGITAL(p)       (((p) >= 0 && (p) <= 7) || ((p) >= 10 && (p) <= 17))
 #define IS_PIN_ANALOG(p)        ((p) >= 10 && (p) <= 17)
 #define IS_PIN_PWM(p)           digitalPinHasPWM(p)
 #define IS_PIN_SERVO(p)         ((p) >= 0 && (p) < MAX_SERVOS) //??
