@@ -43,6 +43,10 @@ CPPSRC += $(TARGET_SRC_PATH)/usb_endp.cpp
 CPPSRC += $(TARGET_SRC_PATH)/usb_istr.cpp
 CPPSRC += $(TARGET_SRC_PATH)/usb_prop.cpp
 CPPSRC += $(TARGET_SRC_PATH)/wifi_credentials_reader.cpp
+CPPSRC += $(TARGET_SRC_PATH)/PubSubClient.cpp
+CPPSRC += $(TARGET_SRC_PATH)/b64.cpp
+CPPSRC += $(TARGET_SRC_PATH)/ringbuffer.cpp
+CPPSRC += $(TARGET_SRC_PATH)/StreamBuffer.cpp
 
 # ASM source files included in this build.
 ASRC +=
