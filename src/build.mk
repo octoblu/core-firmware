@@ -47,6 +47,7 @@ CPPSRC += $(TARGET_SRC_PATH)/PubSubClient.cpp
 CPPSRC += $(TARGET_SRC_PATH)/b64.cpp
 CPPSRC += $(TARGET_SRC_PATH)/ringbuffer.cpp
 CPPSRC += $(TARGET_SRC_PATH)/StreamBuffer.cpp
+CPPSRC += $(TARGET_SRC_PATH)/Firmata.cpp
 
 # ASM source files included in this build.
 ASRC +=
