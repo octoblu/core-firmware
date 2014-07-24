@@ -5,10 +5,14 @@
 
 #include <inttypes.h>
 
+#ifdef SPARK
+#include "application.h"
+#else
 #if defined(ARDUINO) && ARDUINO >= 100
 #include "Arduino.h"  // for digitalRead, digitalWrite, etc
 #else
 #include "WProgram.h"
+#endif
 #endif
 
 // Normally Servo.h must be included before Firmata.h (which then includes
@@ -331,6 +335,22 @@ writePort(port, value, bitmask):  Write an 8 bit port.
 #define PIN_TO_PWM(p)           PIN_TO_DIGITAL(p)
 #define PIN_TO_SERVO(p)         ((p) - 2)
 
+
+// Spark
+#elif defined(SPARK)
+#define TOTAL_ANALOG_PINS       8
+#define VERSION_BLINK_PIN       7
+#define IS_PIN_DIGITAL(p)       (((p) >= 0 && (p) <= 7) || ((p) >= 10 && (p) <= 19))
+#define IS_PIN_ANALOG(p)        ((p) >= 10 && (p) <= 17)
+#define IS_PIN_PWM(p)           digitalPinHasPWM(p)
+#define IS_PIN_SERVO(p)         ((p) >= 0 && (p) < MAX_SERVOS) //??
+#define IS_PIN_I2C(p)           ((p) == 0 || (p) == 1)
+#define IS_PIN_SPI(p)           ((p) == SS || (p) == MOSI || (p) == MISO || (p) == SCK)
+#define PIN_TO_DIGITAL(p)       (p)
+#define PIN_TO_ANALOG(p)        (p)-10
+#define PIN_TO_PWM(p)           PIN_TO_DIGITAL(p)
+#define PIN_TO_SERVO(p)         (p)
+#define IS_PIN_DISABLED(p)      ((p) == 8 || (p) == 9)
 
 // anything else
 #else
