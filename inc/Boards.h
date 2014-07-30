@@ -255,7 +255,7 @@ writePort(port, value, bitmask):  Write an 8 bit port.
 
 
 // Teensy 3.0
-#elif defined(__MK20DX128__) || defined(__MK20DX256__)
+#elif defined(__MK20DX128__)
 #define TOTAL_ANALOG_PINS       14
 #define TOTAL_PINS              38 // 24 digital + 10 analog-digital + 4 analog
 #define VERSION_BLINK_PIN       13
@@ -422,14 +422,14 @@ static inline unsigned char writePort(byte port, byte value, byte bitmask)
   }
 #else
   byte pin=port*8;
-  if ((bitmask & 0x01)) digitalWrite(PIN_TO_DIGITAL(pin+0), (value & 0x01) == 0x01 ? 1 : 0 );
-  if ((bitmask & 0x02)) digitalWrite(PIN_TO_DIGITAL(pin+1), (value & 0x02) == 0x02 ? 1 : 0 );
-  if ((bitmask & 0x04)) digitalWrite(PIN_TO_DIGITAL(pin+2), (value & 0x04) == 0x04 ? 1 : 0 );
-  if ((bitmask & 0x08)) digitalWrite(PIN_TO_DIGITAL(pin+3), (value & 0x08) == 0x08 ? 1 : 0 );
-  if ((bitmask & 0x10)) digitalWrite(PIN_TO_DIGITAL(pin+4), (value & 0x10) == 0x10 ? 1 : 0 );
-  if ((bitmask & 0x20)) digitalWrite(PIN_TO_DIGITAL(pin+5), (value & 0x20) == 0x20 ? 1 : 0 );
-  if ((bitmask & 0x40)) digitalWrite(PIN_TO_DIGITAL(pin+6), (value & 0x40) == 0x40 ? 1 : 0 );
-  if ((bitmask & 0x80)) digitalWrite(PIN_TO_DIGITAL(pin+7), (value & 0x80) == 0x80 ? 1 : 0 );
+    if ((bitmask & 0x01)) digitalWrite(PIN_TO_DIGITAL(pin+0), (value & 0x01) == 0x01 ? 1 : 0 );
+    if ((bitmask & 0x02)) digitalWrite(PIN_TO_DIGITAL(pin+1), (value & 0x02) == 0x02 ? 1 : 0 );
+    if ((bitmask & 0x04)) digitalWrite(PIN_TO_DIGITAL(pin+2), (value & 0x04) == 0x04 ? 1 : 0 );
+    if ((bitmask & 0x08)) digitalWrite(PIN_TO_DIGITAL(pin+3), (value & 0x08) == 0x08 ? 1 : 0 );
+    if ((bitmask & 0x10)) digitalWrite(PIN_TO_DIGITAL(pin+4), (value & 0x10) == 0x10 ? 1 : 0 );
+    if ((bitmask & 0x20)) digitalWrite(PIN_TO_DIGITAL(pin+5), (value & 0x20) == 0x20 ? 1 : 0 );
+    if ((bitmask & 0x40)) digitalWrite(PIN_TO_DIGITAL(pin+6), (value & 0x40) == 0x40 ? 1 : 0 );
+    if ((bitmask & 0x80)) digitalWrite(PIN_TO_DIGITAL(pin+7), (value & 0x80) == 0x80 ? 1 : 0 );
 #endif
 }
 

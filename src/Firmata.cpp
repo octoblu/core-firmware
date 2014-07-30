@@ -15,7 +15,10 @@
 //******************************************************************************
 
 #include "Firmata.h"
-//#include "HardwareSerial.h"
+
+#ifndef SPARK
+#include "HardwareSerial.h"
+#endif
 
 extern "C" {
 #include <string.h>
@@ -28,8 +31,8 @@ extern "C" {
 
 void FirmataClass::sendValueAsTwo7bitBytes(int value)
 {
-  FirmataSerial->write(value & 127); // LSB       //JJR
-  FirmataSerial->write(value >> 7 & 127); // MSB  //JJR
+  FirmataSerial->write(value & 127); // LSB
+  FirmataSerial->write(value >> 7 & 127); // MSB
 }
 
 void FirmataClass::startSysex(void)
