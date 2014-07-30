@@ -25,21 +25,21 @@
 #endif
 
 class b64 {
-	public:
+    public:
     // static void decode(char *src, Stream &stream);
     static uint8_t decode(char *src, size_t size, Stream &stream);
     static uint8_t decode(Stream &from, Stream &to);
     static uint8_t decode(Stream &from, Stream &to, size_t max);
 
     static uint8_t encode(Stream &from, Stream &to, size_t max);
-		static uint8_t encode(const uint8_t *buf, size_t size, Stream &out);
+        static uint8_t encode(const uint8_t *buf, size_t size, Stream &out);
     static uint8_t encode(Stream &from, Stream &to);
     static uint8_t encode(Stream &stream, char *buf, size_t max);
 
 
     static uint8_t encodeLength(size_t max);
 
-		static char lookup(const char c);
-		static char reverselookup(const char c);
+        static char lookup(const char c);
+        static char reverselookup(const char c);
 };
 #endif // _B64_H
