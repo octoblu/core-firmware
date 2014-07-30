@@ -1,36 +1,36 @@
 /*
- * Firmata is a generic protocol for communicating with microcontrollers
- * from software on a host computer. It is intended to work with
- * any host computer software package.
+ *                SSSSS  kk                            tt
+ *               SS      kk  kk yy   yy nn nnn    eee  tt
+ *                SSSSS  kkkkk  yy   yy nnn  nn ee   e tttt
+ *                    SS kk kk   yyyyyy nn   nn eeeee  tt
+ *                SSSSS  kk  kk      yy nn   nn  eeeee  tttt
+ *                               yyyyy
  *
- * To download a host software package, please clink on the following link
- * to open the download page in your default browser.
+ * SkynetClient for http://skynet.im, OPEN COMMUNICATIONS NETWORK & API FOR
+ * THE INTERNET OF THINGS.
  *
- * http://firmata.org/wiki/Download
- */
-
-/*
-  Copyright (C) 2006-2008 Hans-Christoph Steiner.  All rights reserved.
-  Copyright (C) 2010-2011 Paul Stoffregen.  All rights reserved.
-  Copyright (C) 2009 Shigeru Kobayashi.  All rights reserved.
-  Copyright (C) 2009-2011 Jeff Hoefs.  All rights reserved.
-  
-  This library is free software; you can redistribute it and/or
-  modify it under the terms of the GNU Lesser General Public
-  License as published by the Free Software Foundation; either
-  version 2.1 of the License, or (at your option) any later version.
- 
-  See file LICENSE.txt for further informations on licensing terms.
-
-  formatted using the GNU C formatting and indenting
-*/
-
-/* 
- * TODO: use Program Control to load stored profiles from EEPROM
+ * This sketch uses the MQTT library to bridge firmata to skynet. You can then turn pins
+ * off and on remotely, and much much more. To drive from Node.js and Skynet see:
+ * https://github.com/octoblu/serial/tree/master/examples/firmata/SkynetSerial
+ *
+ * Requires the MQTT library from Nick O'Leary http://knolleary.net/arduino-client-for-mqtt/
+ * And one modification in PubSubClient.h, increase MQTT_MAX_PACKET_SIZE from 128 to something like 256
+ *
+ * Works with Spark Core
+ * https://www.spark.io/
+ *
+ * You will notice we're using F() in Serial.print. It is covered briefly on
+ * the arduino print page but it means we can store our strings in program
+ * memory instead of in ram.
+ *
  */
 
 /* Includes ------------------------------------------------------------------*/  
 #include "application.h"
+#include <PubSubClient.h>
+#include <StreamBuffer.h>
+#include <ringbuffer.h>
+#include <b64.h>
 #include <Firmata.h>
 
 /* Function prototypes -------------------------------------------------------*/
@@ -103,6 +103,167 @@ signed char queryIndex = -1;
 unsigned int i2cReadDelayTime = 0;  // default delay time between i2c read request and Wire.requestFrom()
 
 Servo servos[MAX_SERVOS];
+
+ringbuffer write(150); //firmata out - Capabilities Response requires ~150 on Uno
+ringbuffer read(50); //firmata in - min 67% of biggest incoming firmata b64 string 
+
+StreamBuffer stream(write, read);
+StreamBuffer externalaccess(read, write);
+
+char server[] = "skynet.im";
+
+//Your 'firmware' type UUID and token for skynet.im TODO where to get one
+char UUID[]  = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
+char TOKEN[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+
+TCPClient client;
+PubSubClient skynet(server, 1883, onMessage, client);
+
+//we'll run this if anyone messages us
+void onMessage(char* topic, byte* payload, unsigned int length) {
+
+	// // handle incoming messages, well just print it for now
+	// Serial.println(topic);
+	// for(int i =0; i<length; i++){
+	//  Serial.print((char)payload[i]);
+	// }    
+	// Serial.println();
+
+  b64::decode((char*)payload, length, externalaccess);
+
+}
+
+void setup() 
+{
+	Serial.begin(9600);
+	Serial.println("starting");
+
+	Spark.function("digitalread", tinkerDigitalRead);
+	Spark.function("digitalwrite", tinkerDigitalWrite);
+
+	Spark.function("analogread", tinkerAnalogRead);
+	Spark.function("analogwrite", tinkerAnalogWrite);
+
+  Firmata.setFirmwareVersion(FIRMATA_MAJOR_VERSION, FIRMATA_MINOR_VERSION);
+
+  Firmata.attach(ANALOG_MESSAGE, analogWriteCallback);
+  Firmata.attach(DIGITAL_MESSAGE, digitalWriteCallback);
+  Firmata.attach(REPORT_ANALOG, reportAnalogCallback);
+  Firmata.attach(REPORT_DIGITAL, reportDigitalCallback);
+  Firmata.attach(SET_PIN_MODE, setPinModeCallback);
+  Firmata.attach(START_SYSEX, sysexCallback);
+  Firmata.attach(SYSTEM_RESET, systemResetCallback);
+
+  Firmata.begin(stream);	
+  // Firmata.begin(57600);
+  systemResetCallback();  // reset to default config
+}
+
+void loop()
+{
+  //we need to call loop for the mqtt library to do its thing and send/receive our messages
+  if(skynet.loop()){
+
+    byte pin, analogPin;
+    
+    /* DIGITALREAD - as fast as possible, check for changes and output them to the
+     * FTDI buffer using Serial.print()  */
+    checkDigitalInputs();  
+    
+    /* SERIALREAD - processing incoming messagse as soon as possible, while still
+     * checking digital inputs.  */
+    while(Firmata.available())
+      Firmata.processInput();
+    
+    /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
+     * 60 bytes. use a timer to sending an event character every 4 ms to
+     * trigger the buffer to dump. */
+    
+    currentMillis = millis();
+    if (currentMillis - previousMillis > samplingInterval) {
+      previousMillis += samplingInterval;
+      /* ANALOGREAD - do all analogReads() at the configured sampling interval */
+      for(pin=0; pin<TOTAL_PINS; pin++) {
+        if (IS_PIN_ANALOG(pin) && pinConfig[pin] == ANALOG) {
+          analogPin = PIN_TO_ANALOG(pin);
+          if (analogInputsToReport & (1 << analogPin)) {
+            Firmata.sendAnalog(analogPin, analogRead(analogPin));
+          }
+        }
+      }
+      // report i2c data for all device with read continuous mode enabled
+      if (queryIndex > -1) {
+        for (byte i = 0; i < queryIndex + 1; i++) {
+          readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
+        }
+      }
+    }
+  
+    //see if firmata left us any goodies
+    while(externalaccess.available()){
+    
+      //wifi has a buffer limit ~90, want around 80, so ~51 before encoding
+      int len = b64::encodeLength(externalaccess.available() > 51 ? 51 : externalaccess.available());
+      
+      skynet.publishHeader("tb", len, false);
+        
+      b64::encode(externalaccess, client, len);
+            
+    }
+   
+  }else
+  {
+    //get rid of anything in the buffer
+    while(externalaccess.available())
+      externalaccess.read();
+      
+    //oops we're not connected yet or we lost connection
+    Serial.println(F("connecting..."));
+      
+    // skynet doesnt use client so send empty client string and YOUR UUID and token
+    if (skynet.connect("", UUID, TOKEN)){
+
+      //success!
+      Serial.println(F("connected"));
+
+      //you need to subscribe to your uuid to get messages for you
+      skynet.subscribe(UUID);
+      
+    }
+  } 
+}
+
+/*
+ * Firmata is a generic protocol for communicating with microcontrollers
+ * from software on a host computer. It is intended to work with
+ * any host computer software package.
+ *
+ * To download a host software package, please clink on the following link
+ * to open the download page in your default browser.
+ *
+ * http://firmata.org/wiki/Download
+ */
+
+/*
+  Copyright (C) 2006-2008 Hans-Christoph Steiner.  All rights reserved.
+  Copyright (C) 2010-2011 Paul Stoffregen.  All rights reserved.
+  Copyright (C) 2009 Shigeru Kobayashi.  All rights reserved.
+  Copyright (C) 2009-2011 Jeff Hoefs.  All rights reserved.
+  
+  This library is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Lesser General Public
+  License as published by the Free Software Foundation; either
+  version 2.1 of the License, or (at your option) any later version.
+ 
+  See file LICENSE.txt for further informations on licensing terms.
+
+  formatted using the GNU C formatting and indenting
+*/
+
+/* 
+ * TODO: use Program Control to load stored profiles from EEPROM
+ */
+
 /*==============================================================================
  * FUNCTIONS
  *============================================================================*/
@@ -197,6 +358,11 @@ void checkDigitalInputs(void)
  */
 void setPinModeCallback(byte pin, int mode)
 {
+
+	Serial.print("pinmode");
+	Serial.println(pin);
+	Serial.println(mode);
+
   if (pinConfig[pin] == I2C && isI2CEnabled && mode != I2C) {
     // disable i2c so pins can be used for other functions
     // the following if statements should reconfigure the pins properly
@@ -600,70 +766,6 @@ void systemResetCallback()
     outputPort(i, readPort(i, portConfigInputs[i]), true);
   }
   */
-}
-
-void setup() 
-{
-
-	Spark.function("digitalread", tinkerDigitalRead);
-	Spark.function("digitalwrite", tinkerDigitalWrite);
-
-	Spark.function("analogread", tinkerAnalogRead);
-	Spark.function("analogwrite", tinkerAnalogWrite);
-
-  Firmata.setFirmwareVersion(FIRMATA_MAJOR_VERSION, FIRMATA_MINOR_VERSION);
-
-  Firmata.attach(ANALOG_MESSAGE, analogWriteCallback);
-  Firmata.attach(DIGITAL_MESSAGE, digitalWriteCallback);
-  Firmata.attach(REPORT_ANALOG, reportAnalogCallback);
-  Firmata.attach(REPORT_DIGITAL, reportDigitalCallback);
-  Firmata.attach(SET_PIN_MODE, setPinModeCallback);
-  Firmata.attach(START_SYSEX, sysexCallback);
-  Firmata.attach(SYSTEM_RESET, systemResetCallback);
-
-  Firmata.begin(57600);
-  systemResetCallback();  // reset to default config
-}
-
-/*==============================================================================
- * LOOP()
- *============================================================================*/
-void loop() 
-{
-  byte pin, analogPin;
-
-  /* DIGITALREAD - as fast as possible, check for changes and output them to the
-   * FTDI buffer using Serial.print()  */
-  checkDigitalInputs();  
-
-  /* SERIALREAD - processing incoming messagse as soon as possible, while still
-   * checking digital inputs.  */
-  while(Firmata.available())
-    Firmata.processInput();
-
-  /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
-   * 60 bytes. use a timer to sending an event character every 4 ms to
-   * trigger the buffer to dump. */
-
-  currentMillis = millis();
-  if (currentMillis - previousMillis > samplingInterval) {
-    previousMillis += samplingInterval;
-    /* ANALOGREAD - do all analogReads() at the configured sampling interval */
-    for(pin=0; pin<TOTAL_PINS; pin++) {
-      if (IS_PIN_ANALOG(pin) && pinConfig[pin] == ANALOG) {
-        analogPin = PIN_TO_ANALOG(pin);
-        if (analogInputsToReport & (1 << analogPin)) {
-          Firmata.sendAnalog(analogPin, analogRead(analogPin));
-        }
-      }
-    }
-    // report i2c data for all device with read continuous mode enabled
-    if (queryIndex > -1) {
-      for (byte i = 0; i < queryIndex + 1; i++) {
-        readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
-      }
-    }
-  }
 }
 
 /**
