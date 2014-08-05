@@ -1,20 +1,10 @@
 /*
- *                SSSSS  kk                            tt
- *               SS      kk  kk yy   yy nn nnn    eee  tt
- *                SSSSS  kkkkk  yy   yy nnn  nn ee   e tttt
- *                    SS kk kk   yyyyyy nn   nn eeeee  tt
- *                SSSSS  kk  kk      yy nn   nn  eeeee  tttt
- *                               yyyyy
- *
- * SkynetClient for http://skynet.im, OPEN COMMUNICATIONS NETWORK & API FOR
- * THE INTERNET OF THINGS.
- *
- * This sketch uses the MQTT library to bridge firmata to skynet. You can then turn pins
- * off and on remotely, and much much more. To drive from Node.js and Skynet see:
+ * This sketch uses the MQTT library to bridge firmata to Octoblu. You can then turn pins
+ * off and on remotely, and much much more. To drive from Node.js and Octoblu see:
  * https://github.com/octoblu/serial/tree/master/examples/firmata/SkynetSerial
  *
- * Requires the MQTT library from Nick O'Leary http://knolleary.net/arduino-client-for-mqtt/
- * And one modification in PubSubClient.h, increase MQTT_MAX_PACKET_SIZE from 128 to something like 256
+ * Requires our fork of the MQTT PubSubClient https://github.com/jacobrosenthal/pubsubclient
+ * and our fork of firmata https://github.com/jacobrosenthal/arduino/tree/Spark
  *
  * Works with Spark Core
  * https://www.spark.io/
@@ -110,24 +100,24 @@ ringbuffer read(50); //firmata in - min 67% of biggest incoming firmata b64 stri
 StreamBuffer stream(write, read);
 StreamBuffer externalaccess(read, write);
 
-char server[] = "skynet.im";
+char server[] = "meshblu.octoblu.com";
 
-//Your 'firmware' type UUID and token for skynet.im TODO where to get one
+//Your 'firmware' type UUID and token for Octoblu //TODO where to get one
 char UUID[]  = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
 char TOKEN[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 
 TCPClient client;
-PubSubClient skynet(server, 1883, onMessage, client);
+PubSubClient microblu(server, 1883, onMessage, client);
 
 //we'll run this if anyone messages us
 void onMessage(char* topic, byte* payload, unsigned int length) {
 
-	// // handle incoming messages, well just print it for now
-	// Serial.println(topic);
-	// for(int i =0; i<length; i++){
-	//  Serial.print((char)payload[i]);
-	// }    
-	// Serial.println();
+	// handle incoming messages, well just print it for now
+	Serial.println(topic);
+	for(int i =0; i<length; i++){
+	 Serial.print((char)payload[i]);
+	}    
+	Serial.println();
 
   b64::decode((char*)payload, length, externalaccess);
 
@@ -162,7 +152,7 @@ void setup()
 void loop()
 {
   //we need to call loop for the mqtt library to do its thing and send/receive our messages
-  if(skynet.loop()){
+  if(microblu.loop()){
 
     byte pin, analogPin;
     
@@ -205,7 +195,7 @@ void loop()
       //wifi has a buffer limit ~90, want around 80, so ~51 before encoding
       int len = b64::encodeLength(externalaccess.available() > 51 ? 51 : externalaccess.available());
       
-      skynet.publishHeader("tb", len, false);
+      microblu.publishHeader("tb", len, false);
         
       b64::encode(externalaccess, client, len);
             
@@ -220,14 +210,14 @@ void loop()
     //oops we're not connected yet or we lost connection
     Serial.println(F("connecting..."));
       
-    // skynet doesnt use client so send empty client string and YOUR UUID and token
-    if (skynet.connect("", UUID, TOKEN)){
+    // Octoblu doesnt use client so send empty client string and YOUR UUID and token
+    if (microblu.connect("", UUID, TOKEN)){
 
       //success!
       Serial.println(F("connected"));
 
       //you need to subscribe to your uuid to get messages for you
-      skynet.subscribe(UUID);
+      microblu.subscribe(UUID);
       
     }
   } 
@@ -296,7 +286,7 @@ void readAndReportData(byte address, int theRegister, byte numBytes) {
     i2cRxData[0] = address;
     i2cRxData[1] = theRegister;
     for (int i = 0; i < numBytes; i++) {
-    #if ARDUINO >= 100 || SPARK
+      #if ARDUINO >= 100 || SPARK
       i2cRxData[2 + i] = Wire.read();      
       #else
       i2cRxData[2 + i] = Wire.receive();
@@ -358,10 +348,6 @@ void checkDigitalInputs(void)
  */
 void setPinModeCallback(byte pin, int mode)
 {
-
-	Serial.print("pinmode");
-	Serial.println(pin);
-	Serial.println(mode);
 
   if (pinConfig[pin] == I2C && isI2CEnabled && mode != I2C) {
     // disable i2c so pins can be used for other functions
