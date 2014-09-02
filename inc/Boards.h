@@ -343,15 +343,14 @@ writePort(port, value, bitmask):  Write an 8 bit port.
 #define VERSION_BLINK_PIN       7
 #define IS_PIN_DIGITAL(p)       ((p) >= 0 && (p) < TOTAL_PINS)
 #define IS_PIN_ANALOG(p)        ((p) >= FIRST_ANALOG_PIN && (p) < (FIRST_ANALOG_PIN+TOTAL_ANALOG_PINS))
-#define IS_PIN_PWM(p)           digitalPinHasPWM(p)
-#define IS_PIN_SERVO(p)         ((p) >= 2 && (p) - 2 < MAX_SERVOS)
+#define IS_PIN_PWM(p)           ((p) == 0 || (p) == 1 || (p) == 10 || (p) == 11 || (p) == 14 || (p) == 15 || (p) == 16 || (p) == 17)
+#define IS_PIN_SERVO(p)         IS_PIN_PWM(p)
 #define IS_PIN_I2C(p)           ((p) == 0 || (p) == 1)
 #define IS_PIN_SPI(p)           ((p) == SS || (p) == MOSI || (p) == MISO || (p) == SCK)
 #define PIN_TO_DIGITAL(p)       (p)
 #define PIN_TO_ANALOG(p)        ((p) - FIRST_ANALOG_PIN)
-#define PIN_TO_PWM(p)           PIN_TO_DIGITAL(p)
+#define PIN_TO_PWM(p)           (p)
 #define PIN_TO_SERVO(p)         (p) 
-#define IS_PIN_DISABLED(p)      ((p) == 8 || (p) == 9)
 
 // anything else
 #else
