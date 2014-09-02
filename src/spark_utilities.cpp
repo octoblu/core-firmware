@@ -85,8 +85,71 @@ static int str_len(char str[]);
 static void sub_str(char dest[], char src[], int offset, int len);
 */
 
+SystemClass System;
 RGBClass RGB;
 SparkClass Spark;
+
+System_Mode_TypeDef SystemClass::_mode = AUTOMATIC;
+
+SystemClass::SystemClass()
+{
+}
+
+SystemClass::SystemClass(System_Mode_TypeDef mode)
+{
+  switch(mode)
+  {
+    case AUTOMATIC:
+      _mode = AUTOMATIC;
+      SPARK_CLOUD_CONNECT = 1;
+      break;
+
+    case SEMI_AUTOMATIC:
+      _mode = SEMI_AUTOMATIC;
+      SPARK_CLOUD_CONNECT = 0;
+      SPARK_WLAN_SLEEP = 1;
+      break;
+
+    case MANUAL:
+      _mode = MANUAL;
+      SPARK_CLOUD_CONNECT = 0;
+      SPARK_WLAN_SLEEP = 1;
+      break;
+  }
+}
+
+System_Mode_TypeDef SystemClass::mode(void)
+{
+  return _mode;
+}
+
+void SystemClass::factoryReset(void)
+{
+  //Work in Progress
+  //This method will work only if the Core is supplied
+  //with the latest version of Bootloader
+  Factory_Reset_SysFlag = 0xAAAA;
+  Save_SystemFlags();
+
+  reset();
+}
+
+void SystemClass::bootloader(void)
+{
+  //Work in Progress
+  //The drawback here being it will enter bootloader mode until firmware
+  //is loaded again. Require bootloader changes for proper working.
+  BKP_WriteBackupRegister(BKP_DR10, 0xFFFF);
+  FLASH_OTA_Update_SysFlag = 0xFFFF;
+  Save_SystemFlags();
+
+  reset();
+}
+
+void SystemClass::reset(void)
+{
+  NVIC_SystemReset();
+}
 
 bool RGBClass::_control = false;
 
@@ -281,7 +344,7 @@ void SparkClass::sleep(Spark_Sleep_TypeDef sleepMode, long seconds)
 	switch(sleepMode)
 	{
 	case SLEEP_MODE_WLAN:
-		SPARK_WLAN_SLEEP = 1;
+		WiFi.off();
 		break;
 
 	case SLEEP_MODE_DEEP:
@@ -324,18 +387,29 @@ bool SparkClass::connected(void)
 		return false;
 }
 
-int SparkClass::connect(void)
+void SparkClass::connect(void)
 {
 	//Schedule Spark's cloud connection and handshake
+        WiFi.connect();
 	SPARK_CLOUD_CONNECT = 1;
-	return 0;
 }
 
-int SparkClass::disconnect(void)
+void SparkClass::disconnect(void)
 {
 	//Schedule Spark's cloud disconnection
 	SPARK_CLOUD_CONNECT = 0;
-	return 0;
+}
+
+void SparkClass::process(void)
+{
+#ifdef SPARK_WLAN_ENABLE
+  if (SPARK_CLOUD_SOCKETED && !Spark_Communication_Loop())
+  {
+    SPARK_FLASH_UPDATE = 0;
+    SPARK_CLOUD_CONNECTED = 0;
+    SPARK_CLOUD_SOCKETED = 0;
+  }
+#endif
 }
 
 String SparkClass::deviceID(void)
@@ -578,7 +652,8 @@ void Multicast_Presence_Announcement(void)
   addr.sa_data[4] = 0x01;
   addr.sa_data[5] = 0xbb; // IP LSB
 
-  for (int i = 3; i > 0; i--)
+  //why loop here? Uncommenting this leads to SOS(HardFault Exception) on local cloud
+  //for (int i = 3; i > 0; i--)
   {
     sendto(multicast_socket, announcement, 19, 0, &addr, sizeof(sockaddr));
   }
@@ -712,7 +787,8 @@ int Spark_Connect(void)
     case INVALID_INTERNET_ADDRESS:
     {
       const char default_domain[] = "device.spark.io";
-      memcpy(server_addr.domain, default_domain, strlen(default_domain));
+      // Make sure we copy the NULL terminator, so subsequent strlen() calls on server_addr.domain return the correct length
+      memcpy(server_addr.domain, default_domain, strlen(default_domain) + 1);
       // and fall through to domain name case
     }
 

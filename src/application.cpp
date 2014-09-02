@@ -779,7 +779,6 @@ void systemResetCallback()
  ******************************************************************************
  */
 
-
 /*******************************************************************************
  * Function Name  : tinkerDigitalRead
  * Description    : Reads the digital value of a given pin
