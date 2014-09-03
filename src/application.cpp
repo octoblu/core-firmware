@@ -1,3 +1,4 @@
+#include "application.h"
 /*
  * This sketch uses the MQTT library to bridge firmata to Octoblu. You can then turn pins
  * off and on remotely, and much much more. To drive from Node.js and Octoblu see:
@@ -15,16 +16,75 @@
  *
  */
 
-/* Includes ------------------------------------------------------------------*/  
-#include "application.h"
 #include <PubSubClient.h>
 #include <StreamBuffer.h>
 #include <ringbuffer.h>
 #include <b64.h>
+
+void onMessage(char* topic, byte* payload, unsigned int length);
+
+ringbuffer write(150); //firmata out - Capabilities Response requires ~150 on Uno
+ringbuffer read(50); //firmata in - min 67% of biggest incoming firmata b64 string 
+
+StreamBuffer stream(write, read);
+StreamBuffer externalaccess(read, write);
+
+char server[] = "meshblu.octoblu.com";
+
+//Your 'firmware' type UUID and token for Octoblu //TODO where to get one
+char UUID[]  = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
+char TOKEN[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+
+TCPClient client;
+PubSubClient microblu(server, 1883, onMessage, client);
+
+//we'll run this if anyone messages us
+void onMessage(char* topic, byte* payload, unsigned int length) {
+
+  // handle incoming messages, well just print it for now
+  Serial.println(topic);
+  for(int i =0; i<length; i++){
+   Serial.print((char)payload[i]);
+  }    
+  Serial.println();
+
+  b64::decode((char*)payload, length, externalaccess);
+
+}
+
+/*
+ * Firmata is a generic protocol for communicating with microcontrollers
+ * from software on a host computer. It is intended to work with
+ * any host computer software package.
+ *
+ * To download a host software package, please clink on the following link
+ * to open the download page in your default browser.
+ *
+ * http://firmata.org/wiki/Download
+ */
+
+/*
+  Copyright (C) 2006-2008 Hans-Christoph Steiner.  All rights reserved.
+  Copyright (C) 2010-2011 Paul Stoffregen.  All rights reserved.
+  Copyright (C) 2009 Shigeru Kobayashi.  All rights reserved.
+  Copyright (C) 2009-2011 Jeff Hoefs.  All rights reserved.
+  
+  This library is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Lesser General Public
+  License as published by the Free Software Foundation; either
+  version 2.1 of the License, or (at your option) any later version.
+ 
+  See file LICENSE.txt for further informations on licensing terms.
+
+  formatted using the GNU C formatting and indenting
+*/
+
+/* 
+ * TODO: use Program Control to load stored profiles from EEPROM
+ */
+
 #include <Firmata.h>
 
-/* Function prototypes -------------------------------------------------------*/
-void onMessage(char* topic, byte* payload, unsigned int length);
 void readAndReportData(byte address, int theRegister, byte numBytes);
 void outputPort(byte portNumber, byte portValue, byte forceSend);
 void checkDigitalInputs(void);
@@ -37,11 +97,6 @@ void sysexCallback(byte command, byte argc, byte *argv);
 void enableI2CPins();
 void disableI2CPins();
 void systemResetCallback();
-
-int tinkerDigitalRead(String pin);
-int tinkerDigitalWrite(String command);
-int tinkerAnalogRead(String pin);
-int tinkerAnalogWrite(String command);
 
 // move the following defines to Firmata.h?
 #define I2C_WRITE 0x00
@@ -93,170 +148,6 @@ signed char queryIndex = -1;
 unsigned int i2cReadDelayTime = 0;  // default delay time between i2c read request and Wire.requestFrom()
 
 Servo servos[MAX_SERVOS];
-
-ringbuffer write(150); //firmata out - Capabilities Response requires ~150 on Uno
-ringbuffer read(50); //firmata in - min 67% of biggest incoming firmata b64 string 
-
-StreamBuffer stream(write, read);
-StreamBuffer externalaccess(read, write);
-
-char server[] = "meshblu.octoblu.com";
-
-//Your 'firmware' type UUID and token for Octoblu //TODO where to get one
-char UUID[]  = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
-char TOKEN[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-
-TCPClient client;
-PubSubClient microblu(server, 1883, onMessage, client);
-
-//we'll run this if anyone messages us
-void onMessage(char* topic, byte* payload, unsigned int length) {
-
-	// handle incoming messages, well just print it for now
-	Serial.println(topic);
-	for(int i =0; i<length; i++){
-	 Serial.print((char)payload[i]);
-	}    
-	Serial.println();
-
-  b64::decode((char*)payload, length, externalaccess);
-
-}
-
-void setup() 
-{
-	Serial.begin(9600);
-	Serial.println("starting");
-
-	Spark.function("digitalread", tinkerDigitalRead);
-	Spark.function("digitalwrite", tinkerDigitalWrite);
-
-	Spark.function("analogread", tinkerAnalogRead);
-	Spark.function("analogwrite", tinkerAnalogWrite);
-
-  Firmata.setFirmwareVersion(FIRMATA_MAJOR_VERSION, FIRMATA_MINOR_VERSION);
-
-  Firmata.attach(ANALOG_MESSAGE, analogWriteCallback);
-  Firmata.attach(DIGITAL_MESSAGE, digitalWriteCallback);
-  Firmata.attach(REPORT_ANALOG, reportAnalogCallback);
-  Firmata.attach(REPORT_DIGITAL, reportDigitalCallback);
-  Firmata.attach(SET_PIN_MODE, setPinModeCallback);
-  Firmata.attach(START_SYSEX, sysexCallback);
-  Firmata.attach(SYSTEM_RESET, systemResetCallback);
-
-  Firmata.begin(stream);	
-  // Firmata.begin(57600);
-  systemResetCallback();  // reset to default config
-}
-
-void loop()
-{
-  //we need to call loop for the mqtt library to do its thing and send/receive our messages
-  if(microblu.loop()){
-
-    byte pin, analogPin;
-    
-    /* DIGITALREAD - as fast as possible, check for changes and output them to the
-     * FTDI buffer using Serial.print()  */
-    checkDigitalInputs();  
-    
-    /* SERIALREAD - processing incoming messagse as soon as possible, while still
-     * checking digital inputs.  */
-    while(Firmata.available())
-      Firmata.processInput();
-    
-    /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
-     * 60 bytes. use a timer to sending an event character every 4 ms to
-     * trigger the buffer to dump. */
-    
-    currentMillis = millis();
-    if (currentMillis - previousMillis > samplingInterval) {
-      previousMillis += samplingInterval;
-      /* ANALOGREAD - do all analogReads() at the configured sampling interval */
-      for(pin=0; pin<TOTAL_PINS; pin++) {
-        if (IS_PIN_ANALOG(pin) && pinConfig[pin] == ANALOG) {
-          analogPin = PIN_TO_ANALOG(pin);
-          if (analogInputsToReport & (1 << analogPin)) {
-            Firmata.sendAnalog(analogPin, analogRead(analogPin));
-          }
-        }
-      }
-      // report i2c data for all device with read continuous mode enabled
-      if (queryIndex > -1) {
-        for (byte i = 0; i < queryIndex + 1; i++) {
-          readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
-        }
-      }
-    }
-  
-    //see if firmata left us any goodies
-    while(externalaccess.available()){
-    
-      //wifi has a buffer limit ~90, want around 80, so ~51 before encoding
-      int len = b64::encodeLength(externalaccess.available() > 51 ? 51 : externalaccess.available());
-      
-      microblu.publishHeader("tb", len, false);
-        
-      b64::encode(externalaccess, client, len);
-            
-    }
-   
-  }else
-  {
-    //get rid of anything in the buffer
-    while(externalaccess.available())
-      externalaccess.read();
-      
-    //oops we're not connected yet or we lost connection
-    Serial.println(F("connecting..."));
-      
-    // Octoblu doesnt use client so send empty client string and YOUR UUID and token
-    if (microblu.connect("", UUID, TOKEN)){
-
-      //success!
-      Serial.println(F("connected"));
-
-      //you need to subscribe to your uuid to get messages for you
-      microblu.subscribe(UUID);
-      
-    }
-  } 
-}
-
-/*
- * Firmata is a generic protocol for communicating with microcontrollers
- * from software on a host computer. It is intended to work with
- * any host computer software package.
- *
- * To download a host software package, please clink on the following link
- * to open the download page in your default browser.
- *
- * http://firmata.org/wiki/Download
- */
-
-/*
-  Copyright (C) 2006-2008 Hans-Christoph Steiner.  All rights reserved.
-  Copyright (C) 2010-2011 Paul Stoffregen.  All rights reserved.
-  Copyright (C) 2009 Shigeru Kobayashi.  All rights reserved.
-  Copyright (C) 2009-2011 Jeff Hoefs.  All rights reserved.
-  
-  This library is free software; you can redistribute it and/or
-  modify it under the terms of the GNU Lesser General Public
-  License as published by the Free Software Foundation; either
-  version 2.1 of the License, or (at your option) any later version.
- 
-  See file LICENSE.txt for further informations on licensing terms.
-
-  formatted using the GNU C formatting and indenting
-*/
-
-/* 
- * TODO: use Program Control to load stored profiles from EEPROM
- */
-
-/*==============================================================================
- * FUNCTIONS
- *============================================================================*/
 
 void readAndReportData(byte address, int theRegister, byte numBytes) {
   // allow I2C requests that don't require a register read
@@ -555,7 +446,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
       query[queryIndex].bytes = argv[4] + (argv[5] << 7);
       break;
     case I2C_STOP_READING:
-	  byte queryIndexToSkip;      
+    byte queryIndexToSkip;      
       // if read continuous mode is enabled for only 1 i2c device, disable
       // read continuous reporting for that device
       if (queryIndex <= 0) {
@@ -668,9 +559,9 @@ void sysexCallback(byte command, byte argc, byte *argv)
       Firmata.write(pin);
       if (pin < TOTAL_PINS) {
         Firmata.write((byte)pinConfig[pin]);
-	Firmata.write((byte)pinState[pin] & 0x7F);
-	if (pinState[pin] & 0xFF80) Firmata.write((byte)(pinState[pin] >> 7) & 0x7F);
-	if (pinState[pin] & 0xC000) Firmata.write((byte)(pinState[pin] >> 14) & 0x7F);
+  Firmata.write((byte)pinState[pin] & 0x7F);
+  if (pinState[pin] & 0xFF80) Firmata.write((byte)(pinState[pin] >> 7) & 0x7F);
+  if (pinState[pin] & 0xC000) Firmata.write((byte)(pinState[pin] >> 14) & 0x7F);
       }
       Firmata.write(END_SYSEX);
     }
@@ -722,11 +613,11 @@ void systemResetCallback()
   // initialize a defalt state
   // TODO: option to load config from EEPROM instead of default
   if (isI2CEnabled) {
-  	disableI2CPins();
+    disableI2CPins();
   }
   for (byte i=0; i < TOTAL_PORTS; i++) {
     reportPINs[i] = false;      // by default, reporting off
-    portConfigInputs[i] = 0;	// until activated
+    portConfigInputs[i] = 0;  // until activated
     previousPINs[i] = 0;
   }
   // pins with analog capability default to analog input
@@ -782,6 +673,11 @@ void systemResetCallback()
  ******************************************************************************
  */
 
+int tinkerDigitalRead(String pin);
+int tinkerDigitalWrite(String command);
+int tinkerAnalogRead(String pin);
+int tinkerAnalogWrite(String command);
+
 /*******************************************************************************
  * Function Name  : tinkerDigitalRead
  * Description    : Reads the digital value of a given pin
@@ -792,22 +688,22 @@ void systemResetCallback()
  *******************************************************************************/
 int tinkerDigitalRead(String pin)
 {
-	//convert ascii to integer
-	int pinNumber = pin.charAt(1) - '0';
-	//Sanity check to see if the pin numbers are within limits
-	if (pinNumber< 0 || pinNumber >7) return -1;
+  //convert ascii to integer
+  int pinNumber = pin.charAt(1) - '0';
+  //Sanity check to see if the pin numbers are within limits
+  if (pinNumber< 0 || pinNumber >7) return -1;
 
-	if(pin.startsWith("D"))
-	{
-		pinMode(pinNumber, INPUT_PULLDOWN);
-		return digitalRead(pinNumber);
-	}
-	else if (pin.startsWith("A"))
-	{
-		pinMode(pinNumber+10, INPUT_PULLDOWN);
-		return digitalRead(pinNumber+10);
-	}
-	return -2;
+  if(pin.startsWith("D"))
+  {
+    pinMode(pinNumber, INPUT_PULLDOWN);
+    return digitalRead(pinNumber);
+  }
+  else if (pin.startsWith("A"))
+  {
+    pinMode(pinNumber+10, INPUT_PULLDOWN);
+    return digitalRead(pinNumber+10);
+  }
+  return -2;
 }
 
 /*******************************************************************************
@@ -819,29 +715,29 @@ int tinkerDigitalRead(String pin)
  *******************************************************************************/
 int tinkerDigitalWrite(String command)
 {
-	bool value = 0;
-	//convert ascii to integer
-	int pinNumber = command.charAt(1) - '0';
-	//Sanity check to see if the pin numbers are within limits
-	if (pinNumber< 0 || pinNumber >7) return -1;
+  bool value = 0;
+  //convert ascii to integer
+  int pinNumber = command.charAt(1) - '0';
+  //Sanity check to see if the pin numbers are within limits
+  if (pinNumber< 0 || pinNumber >7) return -1;
 
-	if(command.substring(3,7) == "HIGH") value = 1;
-	else if(command.substring(3,6) == "LOW") value = 0;
-	else return -2;
+  if(command.substring(3,7) == "HIGH") value = 1;
+  else if(command.substring(3,6) == "LOW") value = 0;
+  else return -2;
 
-	if(command.startsWith("D"))
-	{
-		pinMode(pinNumber, OUTPUT);
-		digitalWrite(pinNumber, value);
-		return 1;
-	}
-	else if(command.startsWith("A"))
-	{
-		pinMode(pinNumber+10, OUTPUT);
-		digitalWrite(pinNumber+10, value);
-		return 1;
-	}
-	else return -3;
+  if(command.startsWith("D"))
+  {
+    pinMode(pinNumber, OUTPUT);
+    digitalWrite(pinNumber, value);
+    return 1;
+  }
+  else if(command.startsWith("A"))
+  {
+    pinMode(pinNumber+10, OUTPUT);
+    digitalWrite(pinNumber+10, value);
+    return 1;
+  }
+  else return -3;
 }
 
 /*******************************************************************************
@@ -854,22 +750,22 @@ int tinkerDigitalWrite(String command)
  *******************************************************************************/
 int tinkerAnalogRead(String pin)
 {
-	//convert ascii to integer
-	int pinNumber = pin.charAt(1) - '0';
-	//Sanity check to see if the pin numbers are within limits
-	if (pinNumber< 0 || pinNumber >7) return -1;
+  //convert ascii to integer
+  int pinNumber = pin.charAt(1) - '0';
+  //Sanity check to see if the pin numbers are within limits
+  if (pinNumber< 0 || pinNumber >7) return -1;
 
-	if(pin.startsWith("D"))
-	{
-		pinMode(pinNumber, INPUT);
-		return analogRead(pinNumber);
-	}
-	else if (pin.startsWith("A"))
-	{
-		pinMode(pinNumber+10, INPUT);
-		return analogRead(pinNumber+10);
-	}
-	return -2;
+  if(pin.startsWith("D"))
+  {
+    pinMode(pinNumber, INPUT);
+    return analogRead(pinNumber);
+  }
+  else if (pin.startsWith("A"))
+  {
+    pinMode(pinNumber+10, INPUT);
+    return analogRead(pinNumber+10);
+  }
+  return -2;
 }
 
 /*******************************************************************************
@@ -881,25 +777,124 @@ int tinkerAnalogRead(String pin)
  *******************************************************************************/
 int tinkerAnalogWrite(String command)
 {
-	//convert ascii to integer
-	int pinNumber = command.charAt(1) - '0';
-	//Sanity check to see if the pin numbers are within limits
-	if (pinNumber< 0 || pinNumber >7) return -1;
+  //convert ascii to integer
+  int pinNumber = command.charAt(1) - '0';
+  //Sanity check to see if the pin numbers are within limits
+  if (pinNumber< 0 || pinNumber >7) return -1;
 
-	String value = command.substring(3);
+  String value = command.substring(3);
 
-	if(command.startsWith("D"))
-	{
-		pinMode(pinNumber, OUTPUT);
-		analogWrite(pinNumber, value.toInt());
-		return 1;
-	}
-	else if(command.startsWith("A"))
-	{
-		pinMode(pinNumber+10, OUTPUT);
-		analogWrite(pinNumber+10, value.toInt());
-		return 1;
-	}
-	else return -2;
+  if(command.startsWith("D"))
+  {
+    pinMode(pinNumber, OUTPUT);
+    analogWrite(pinNumber, value.toInt());
+    return 1;
+  }
+  else if(command.startsWith("A"))
+  {
+    pinMode(pinNumber+10, OUTPUT);
+    analogWrite(pinNumber+10, value.toInt());
+    return 1;
+  }
+  else return -2;
 }
 
+void setup() 
+{
+  Serial.begin(9600);
+  Serial.println("starting");
+
+  Spark.function("digitalread", tinkerDigitalRead);
+  Spark.function("digitalwrite", tinkerDigitalWrite);
+
+  Spark.function("analogread", tinkerAnalogRead);
+  Spark.function("analogwrite", tinkerAnalogWrite);
+
+  Firmata.setFirmwareVersion(FIRMATA_MAJOR_VERSION, FIRMATA_MINOR_VERSION);
+
+  Firmata.attach(ANALOG_MESSAGE, analogWriteCallback);
+  Firmata.attach(DIGITAL_MESSAGE, digitalWriteCallback);
+  Firmata.attach(REPORT_ANALOG, reportAnalogCallback);
+  Firmata.attach(REPORT_DIGITAL, reportDigitalCallback);
+  Firmata.attach(SET_PIN_MODE, setPinModeCallback);
+  Firmata.attach(START_SYSEX, sysexCallback);
+  Firmata.attach(SYSTEM_RESET, systemResetCallback);
+
+  Firmata.begin(stream);  
+  // Firmata.begin(57600);
+  systemResetCallback();  // reset to default config
+}
+
+void loop()
+{
+  //we need to call loop for the mqtt library to do its thing and send/receive our messages
+  if(microblu.loop()){
+
+    byte pin, analogPin;
+    
+    /* DIGITALREAD - as fast as possible, check for changes and output them to the
+     * FTDI buffer using Serial.print()  */
+    checkDigitalInputs();  
+    
+    /* SERIALREAD - processing incoming messagse as soon as possible, while still
+     * checking digital inputs.  */
+    while(Firmata.available())
+      Firmata.processInput();
+    
+    /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
+     * 60 bytes. use a timer to sending an event character every 4 ms to
+     * trigger the buffer to dump. */
+    
+    currentMillis = millis();
+    if (currentMillis - previousMillis > samplingInterval) {
+      previousMillis += samplingInterval;
+      /* ANALOGREAD - do all analogReads() at the configured sampling interval */
+      for(pin=0; pin<TOTAL_PINS; pin++) {
+        if (IS_PIN_ANALOG(pin) && pinConfig[pin] == ANALOG) {
+          analogPin = PIN_TO_ANALOG(pin);
+          if (analogInputsToReport & (1 << analogPin)) {
+            Firmata.sendAnalog(analogPin, analogRead(analogPin));
+          }
+        }
+      }
+      // report i2c data for all device with read continuous mode enabled
+      if (queryIndex > -1) {
+        for (byte i = 0; i < queryIndex + 1; i++) {
+          readAndReportData(query[i].addr, query[i].reg, query[i].bytes);
+        }
+      }
+    }
+  
+    //see if firmata left us any goodies
+    while(externalaccess.available()){
+    
+      //wifi has a buffer limit ~90, want around 80, so ~51 before encoding
+      int len = b64::encodeLength(externalaccess.available() > 51 ? 51 : externalaccess.available());
+      
+      microblu.publishHeader("tb", len, false);
+        
+      b64::encode(externalaccess, client, len);
+            
+    }
+   
+  }else
+  {
+    //get rid of anything in the buffer
+    while(externalaccess.available())
+      externalaccess.read();
+      
+    //oops we're not connected yet or we lost connection
+    Serial.println(F("connecting..."));
+      
+    // Octoblu doesnt use client so send empty client string and YOUR UUID and token
+    if (microblu.connect("", UUID, TOKEN)){
+
+      //success!
+      Serial.println(F("connected"));
+
+      //you need to subscribe to your uuid to get messages for you
+      microblu.subscribe(UUID);
+      
+    }
+  } 
+}
