@@ -563,8 +563,6 @@ void systemResetCallback()
   // otherwise, pins default to digital output
   for (byte i=0; i < TOTAL_PINS; i++) {
 
-    if(i == 0 || i == 1 || i == 8 || i == 9 || i == 20) break;
-
     if (IS_PIN_ANALOG(i)) {
       // turns off pullup, configures everything
       setPinModeCallback(i, ANALOG);
