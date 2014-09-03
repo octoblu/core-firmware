@@ -67,7 +67,7 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   Copyright (C) 2006-2008 Hans-Christoph Steiner.  All rights reserved.
   Copyright (C) 2010-2011 Paul Stoffregen.  All rights reserved.
   Copyright (C) 2009 Shigeru Kobayashi.  All rights reserved.
-  Copyright (C) 2009-2011 Jeff Hoefs.  All rights reserved.
+  Copyright (C) 2009-2013 Jeff Hoefs.  All rights reserved.
   
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -130,7 +130,7 @@ int pinState[TOTAL_PINS];           // any value that has been written
 /* timer variables */
 unsigned long currentMillis;        // store the current value from millis()
 unsigned long previousMillis;       // for comparison with currentMillis
-int samplingInterval = 19;          // how often to run the main loop (in ms)
+unsigned int samplingInterval = 19;          // how often to run the main loop (in ms)
 
 /* i2c data */
 struct i2c_device_info {
@@ -155,11 +155,7 @@ void readAndReportData(byte address, int theRegister, byte numBytes) {
   // do not always require the register read so upon interrupt you call Wire.requestFrom()  
   if (theRegister != REGISTER_NOT_SPECIFIED) {
     Wire.beginTransmission(address);
-    #if ARDUINO >= 100 || SPARK
     Wire.write((byte)theRegister);
-    #else
-    Wire.send((byte)theRegister);
-    #endif
     Wire.endTransmission();
     // do not set a value of 0
     if (i2cReadDelayTime > 0) {
@@ -173,23 +169,17 @@ void readAndReportData(byte address, int theRegister, byte numBytes) {
   Wire.requestFrom(address, numBytes);  // all bytes are returned in requestFrom
 
   // check to be sure correct number of bytes were returned by slave
-  if(numBytes == Wire.available()) {
-    i2cRxData[0] = address;
-    i2cRxData[1] = theRegister;
-    for (int i = 0; i < numBytes; i++) {
-      #if ARDUINO >= 100 || SPARK
-      i2cRxData[2 + i] = Wire.read();      
-      #else
-      i2cRxData[2 + i] = Wire.receive();
-      #endif
-    }
-  }
-  else {
-    if(numBytes > Wire.available()) {
+  if(numBytes < Wire.available()) {
       Firmata.sendString("I2C Read Error: Too many bytes received");
-    } else {
+  } else if(numBytes > Wire.available()) {
       Firmata.sendString("I2C Read Error: Too few bytes received"); 
-    }
+  }
+
+  i2cRxData[0] = address;
+  i2cRxData[1] = theRegister;
+
+  for (int i = 0; i < numBytes && Wire.available(); i++) {
+    i2cRxData[2 + i] = Wire.read();
   }
 
   // send slave address, register and received bytes
@@ -239,7 +229,6 @@ void checkDigitalInputs(void)
  */
 void setPinModeCallback(byte pin, int mode)
 {
-
   if (pinConfig[pin] == I2C && isI2CEnabled && mode != I2C) {
     // disable i2c so pins can be used for other functions
     // the following if statements should reconfigure the pins properly
@@ -353,7 +342,6 @@ void digitalWriteCallback(byte port, int value)
   }
 }
 
-
 // -----------------------------------------------------------------------------
 /* sets bits in a bit array (int) to toggle the reporting of the analogIns
  */
@@ -400,7 +388,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
   case I2C_REQUEST:
     mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
     if (argv[1] & I2C_10BIT_ADDRESS_MODE_MASK) {
-      Firmata.sendString("10-bit addressing mode is not yet supported");
+      Firmata.sendString("10-bit addressing not supported");
       return;
     }
     else {
@@ -412,11 +400,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
       Wire.beginTransmission(slaveAddress);
       for (byte i = 2; i < argc; i += 2) {
         data = argv[i] + (argv[i + 1] << 7);
-        #if ARDUINO >= 100 || SPARK
         Wire.write(data);
-        #else
-        Wire.send(data);
-        #endif
       }
       Wire.endTransmission();
       delayMicroseconds(70);
@@ -446,7 +430,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
       query[queryIndex].bytes = argv[4] + (argv[5] << 7);
       break;
     case I2C_STOP_READING:
-    byte queryIndexToSkip;      
+      byte queryIndexToSkip;      
       // if read continuous mode is enabled for only 1 i2c device, disable
       // read continuous reporting for that device
       if (queryIndex <= 0) {
@@ -456,7 +440,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
         // determine which device to stop reading and remove it's data from
         // the array, shifiting other array data to fill the space
         for (byte i = 0; i < queryIndex + 1; i++) {
-          if (query[i].addr = slaveAddress) {
+          if (query[i].addr == slaveAddress) {
             queryIndexToSkip = i;
             break;
           }
@@ -465,7 +449,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
         for (byte i = queryIndexToSkip; i<queryIndex + 1; i++) {
           if (i < MAX_QUERIES) {
             query[i].addr = query[i+1].addr;
-            query[i].reg = query[i+1].addr;
+            query[i].reg = query[i+1].reg;
             query[i].bytes = query[i+1].bytes; 
           }
         }
@@ -623,9 +607,6 @@ void systemResetCallback()
   // pins with analog capability default to analog input
   // otherwise, pins default to digital output
   for (byte i=0; i < TOTAL_PINS; i++) {
-
-    if(i == 8 || i == 9 ) break;  //JJR dont mess with rgb led pins
-
     if (IS_PIN_ANALOG(i)) {
       // turns off pullup, configures everything
       setPinModeCallback(i, ANALOG);
@@ -801,15 +782,14 @@ int tinkerAnalogWrite(String command)
 
 void setup() 
 {
-  Serial.begin(9600);
-  Serial.println("starting");
+  Serial.begin(57600);
 
   Spark.function("digitalread", tinkerDigitalRead);
   Spark.function("digitalwrite", tinkerDigitalWrite);
 
   Spark.function("analogread", tinkerAnalogRead);
   Spark.function("analogwrite", tinkerAnalogWrite);
-
+  
   Firmata.setFirmwareVersion(FIRMATA_MAJOR_VERSION, FIRMATA_MINOR_VERSION);
 
   Firmata.attach(ANALOG_MESSAGE, analogWriteCallback);
@@ -821,30 +801,29 @@ void setup()
   Firmata.attach(SYSTEM_RESET, systemResetCallback);
 
   Firmata.begin(stream);  
-  // Firmata.begin(57600);
   systemResetCallback();  // reset to default config
 }
 
-void loop()
+void loop() 
 {
   //we need to call loop for the mqtt library to do its thing and send/receive our messages
   if(microblu.loop()){
 
     byte pin, analogPin;
-    
+
     /* DIGITALREAD - as fast as possible, check for changes and output them to the
      * FTDI buffer using Serial.print()  */
     checkDigitalInputs();  
-    
+
     /* SERIALREAD - processing incoming messagse as soon as possible, while still
      * checking digital inputs.  */
     while(Firmata.available())
       Firmata.processInput();
-    
+
     /* SEND FTDI WRITE BUFFER - make sure that the FTDI buffer doesn't go over
      * 60 bytes. use a timer to sending an event character every 4 ms to
      * trigger the buffer to dump. */
-    
+
     currentMillis = millis();
     if (currentMillis - previousMillis > samplingInterval) {
       previousMillis += samplingInterval;
@@ -864,7 +843,7 @@ void loop()
         }
       }
     }
-  
+
     //see if firmata left us any goodies
     while(externalaccess.available()){
     
@@ -876,7 +855,7 @@ void loop()
       b64::encode(externalaccess, client, len);
             
     }
-   
+
   }else
   {
     //get rid of anything in the buffer
