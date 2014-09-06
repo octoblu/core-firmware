@@ -20,3 +20,4 @@ See octoblu.com for more info
 
 ##Gotchas
 * Many firmata clients are too chatty. Firmata was a usb serial protocol first where bandwidth and latency weren't a thing. Firmata.js https://github.com/jgautier/firmata/ specifically asks for the state and turns on reporting for every pin which currently runs so long the Spark reboots. Throttle your requests and don't bother getting the entire board state unless you need it. See Skynet serial above for an example that uses our fork https://github.com/monteslu/firmata/tree/nohandshake with the skipHandshake flag. 
+* Requires Spark 0.3.3 As of this writing, you need to update your core from ARM toolchain, but the fix should be out in a release shortly. https://github.com/spark/core-firmware/compare/feature/release3.3 There was a bug in Spark prior to that which swapped input and output enums meaning you have to set input when you mean output, and reverse https://github.com/spark/core-firmware/issues/282
