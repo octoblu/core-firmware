@@ -130,6 +130,8 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
          uint8_t llen;
          uint16_t len = readPacket(&llen);
          
+         pubsubStatus = buffer[3];
+
          if (len == 4 && buffer[3] == 0) {
             lastInActivity = millis();
             pingOutstanding = false;
@@ -145,6 +147,10 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
       _client->stop();
    }
    return false;
+}
+
+uint8_t PubSubClient::status(){
+   return pubsubStatus;
 }
 
 uint8_t PubSubClient::readByte() {
@@ -372,12 +378,9 @@ boolean PubSubClient::publishHeader(char* topic, unsigned int plength, boolean r
 //    rc += _client->write(buffer,pos);
    
 //    for (i=0;i<plength;i++) {
-//       char c = (char)pgm_read_byte_near(payload + i);
-//       rc += _client->write(c);
+//       rc += _client->write((char)pgm_read_byte_near(payload + i));
 //    }
-      
-//    PRINTLN();
-
+   
 //    lastOutActivity = millis();
    
 //    return rc == tlen + 4 + plength;
