@@ -1,10 +1,10 @@
-Octoblu microblu for Spark
-
-See octoblu.com
+#Octoblu microblu for Spark
 
 This sketch will make a rest call to get its own uuid and token and store it to the eeprom until it has been invalidated by the server at which point it will be over written with new credentials.
 
-#Install (easy - requires Node and npm)
+See octoblu.com for more info
+
+##Install ( requires Node / npm)
 * Download core-firmware.bin from above
 * Log in to https://www.spark.io/build Find your core id 
 * Click cores in the bottom left corner
