@@ -1,4 +1,5 @@
 #include "application.h"
+
 /*
  * This sketch uses the MQTT library to bridge firmata to Octoblu. You can then turn pins
  * off and on remotely, and much much more. To drive from Node.js and Octoblu see:
@@ -20,8 +21,24 @@
 #include <StreamBuffer.h>
 #include <ringbuffer.h>
 #include <b64.h>
+#include "pgmspace.h"
 
-void onMessage(char* topic, byte* payload, unsigned int length);
+const prog_uchar POST1[] PROGMEM = {"POST /devices/micro HTTP/1.1\r\n"};
+const prog_uchar POST2[] PROGMEM = {"Content-type: application/x-www-form-urlencoded\r\n"};
+const prog_uchar POST3[] PROGMEM = {"Content-length: 44\r\n\r\n"};
+const prog_uchar POST4[] PROGMEM = {"type=microblu&name=myDevice&payloadOnly=true\r\n"};
+
+unsigned long lastBeat;
+const uint16_t SOCKETTIMEOUT = 10000;
+const uint8_t SOCKET_RX_BUFFER_SIZE = 100;
+const uint8_t UUIDSIZE = 37;
+const uint8_t TOKENSIZE = 33;
+
+const uint8_t EEPROMBLOCK = 'O';
+const uint16_t EEPROMBLOCKADDRESS = 0;
+const uint16_t TOKENADDRESS = EEPROMBLOCKADDRESS+1;
+const uint16_t UUIDADDRESS = TOKENADDRESS+TOKENSIZE;
+const uint8_t MAX_FLASH_STRING = 50; //for longst PROGMEM string, /devices Post
 
 ringbuffer write(150); //firmata out - Capabilities Response requires ~150 on Uno
 ringbuffer read(50); //firmata in - min 67% of biggest incoming firmata b64 string 
@@ -30,13 +47,6 @@ StreamBuffer stream(write, read);
 StreamBuffer externalaccess(read, write);
 
 char server[] = "meshblu.octoblu.com";
-
-//Your 'firmware' type UUID and token for Octoblu //TODO where to get one
-char UUID[]  = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
-char TOKEN[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-
-TCPClient client;
-PubSubClient microblu(server, 1883, onMessage, client);
 
 //we'll run this if anyone messages us
 void onMessage(char* topic, byte* payload, unsigned int length) {
@@ -50,6 +60,194 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 
   b64::decode((char*)payload, length, externalaccess);
 
+}
+
+TCPClient client;
+PubSubClient microblu(server, 1883, onMessage, client);
+
+uint8_t waitSocketData()
+{
+  lastBeat = millis();
+  while (!client.available() && ((unsigned long)(millis() - lastBeat) <= SOCKETTIMEOUT))
+  {
+    ;
+  }
+  return client.available();
+}
+
+uint8_t readLine(char *buf, uint8_t max)
+{
+  int count = 0;
+
+  //end on newline, -1 from client, or -1 from client not available
+  char c = client.read();
+  while(c!=-1 && c!=10 && c!=255)
+  {
+    switch (c)
+    {
+      //dont store but get more chars
+      case 0:
+      case 13:
+        break;
+      //if it fits, store it  
+      default:
+        if(count < max-1)
+        {
+          buf[count++]=c;
+        }else
+        {
+          c = toupper(c);
+        }
+        Serial.print(c);
+    }
+    c = client.read();  
+  }
+  
+  buf[count++]=0;
+  Serial.println();
+  return count;
+}
+
+//Arduino Eeprom.write doesnt utilize update, so read to see if we need to refresh first
+void eeprom_write_bytes(int address, char *buf, int bufSize){
+  for(int i = 0; i<bufSize; i++){
+    if(EEPROM.read(address+i)!=buf[i]){
+      EEPROM.write(address+i, buf[i]);
+    }
+  }
+}
+
+//Arduino Eeprom.write doesnt utilize update, so read to see if we need to refresh first
+void eeprom_write_byte(int address, char c){
+    if(EEPROM.read(address)!=c){
+      EEPROM.write(address, c);
+    }
+}
+
+void eeprom_read_bytes(int address, char *buf, int bufSize){
+  for(int i = 0; i<bufSize; i++){
+    buf[i] = EEPROM.read(address+i);
+  }
+}
+
+void getToken(char *token)
+{
+  eeprom_read_bytes(TOKENADDRESS, token, TOKENSIZE);
+  token[TOKENSIZE-1]='\0'; //in case courrupted or not defined
+}
+
+void setToken(char *token)
+{
+  eeprom_write_bytes(TOKENADDRESS, token, TOKENSIZE);
+  
+  //write block identifier, arduino should protect us from writing if it doesnt need it?
+  EEPROM.write((uint8_t )EEPROMBLOCKADDRESS, (uint8_t)EEPROMBLOCK); 
+}
+
+void getUuid(char *uuid)
+{
+  eeprom_read_bytes(UUIDADDRESS, uuid, UUIDSIZE);
+  uuid[UUIDSIZE-1]='\0'; //in case courrupted or not defined
+}
+
+void setUuid(char *uuid)
+{
+  eeprom_write_bytes(UUIDADDRESS, uuid, UUIDSIZE);
+
+  //write block identifier, arduino should protect us from writing if it doesnt need it?
+  EEPROM.write((uint8_t)EEPROMBLOCKADDRESS, (uint8_t)EEPROMBLOCK); 
+}
+
+void xmit(const prog_uchar *data) 
+{
+  PGM_P p = reinterpret_cast<PGM_P>(data);
+
+  char buffer[MAX_FLASH_STRING];
+  strcpy_P(buffer, p);
+
+  Serial.print(buffer);
+  client.print(buffer);
+}
+
+void xmit(const __FlashStringHelper* data) 
+{
+  PGM_P p = reinterpret_cast<PGM_P>(data);
+
+  char buffer[MAX_FLASH_STRING];
+  strcpy_P(buffer, p);
+
+  Serial.print(buffer);
+  client.print(buffer);
+}
+
+void xmit(IPAddress data) 
+{
+  Serial.print(data);
+  client.print(data);
+}
+
+void xmit(const char *data) 
+{
+  Serial.print(data);
+  client.print(data);
+}
+
+void xmit(char data)
+{
+  Serial.print(data);
+  client.print(data);
+}
+
+//make rest call and save uuid and token to eeprom
+bool authenticate(){
+  
+  char databuffer[SOCKET_RX_BUFFER_SIZE];
+
+  //connect tcp or fail
+  if (!client.connect("skynet.im", 80))
+  {
+    client.stop();
+    Serial.println("TCP Failed");
+    return false;
+  }
+
+  xmit(POST1);
+  xmit(POST2);
+  xmit(POST3);
+  xmit(POST4);
+
+  //receive data or return
+  if(!waitSocketData())
+  {
+    client.stop();
+    Serial.println("Post Failed");
+    return false;
+  }
+
+  //check for OK or return
+  if(readLine(databuffer, SOCKET_RX_BUFFER_SIZE) == 0 || strstr (databuffer,"200") == NULL){
+    client.stop();
+    Serial.println("No Initial OK response");
+    return false;
+  }
+
+  //dump the response until the uuid json line
+  for(int i = 0; i<13; i++){
+   if(readLine(databuffer, SOCKET_RX_BUFFER_SIZE)==0)
+   {
+     client.stop();
+     Serial.println("Malformed POST response");
+     return false;
+   }
+ }
+
+ setUuid(databuffer);
+
+ readLine(databuffer, SOCKET_RX_BUFFER_SIZE);
+ 
+ setToken(databuffer);
+
+ return true;
 }
 
 /*
@@ -864,7 +1062,21 @@ void loop()
       
     //oops we're not connected yet or we lost connection
     Serial.println(F("connecting..."));
-      
+    
+    //Your 'firmware' type UUID and token for Octoblu
+    //anything you set here will get blown away by the getuuid and gettoken below
+    //unless you comment those out.
+    char UUID[]  = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX";
+    char TOKEN[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+
+    getUuid(UUID);
+    Serial.print(F("uuid: "));
+    Serial.println(UUID);
+    
+    getToken(TOKEN);
+    Serial.print(F("token: "));
+    Serial.println(TOKEN);   
+
     // Octoblu doesnt use client so send empty client string and YOUR UUID and token
     if (microblu.connect("", UUID, TOKEN)){
 
@@ -874,6 +1086,10 @@ void loop()
       //you need to subscribe to your uuid to get messages for you
       microblu.subscribe(UUID);
       
+    }else if(microblu.status() == MQTTSTATUS_CREDENTIALS_REFUSED){
+
+      authenticate();
+
     }
   } 
 }
